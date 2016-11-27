@@ -1,5 +1,6 @@
 import sys
 import os
+from collections import namedtuple
 
 from OpenGL.GL import *
 from OpenGL.GLUT import *
@@ -12,28 +13,49 @@ from csg.geom import Vertex, Vector
 
 from optparse import OptionParser
 
-light_ambient = [0.3, 0.3, 0.3, 1.0]
-light_diffuse = [0.7, 0.7, 0.7, 1.0]  # Red diffuse light
-light_position = [100.0, 100.0, 100.0, 0.0]  # Infinite light location.
+Light = namedtuple('Light', ['num', 'ambient', 'diffuse', 'position'])
+
+lights = [
+    Light(
+        num=GL_LIGHT0,
+        ambient=[0.3, 0.3, 0.3, 1.0],
+        diffuse=[0.4, 0.4, 0.4, 1.0],
+        position=[100.0, 100.0, 100.0, 0.0], # up and right, towards viewer
+    ),
+    Light(
+        num=GL_LIGHT1,
+        ambient=[0.3, 0.3, 0.3, 1.0],
+        diffuse=[0.4, 0.4, 0.4, 1.0],
+        position=[-100.0, 100.0, 100.0, 0.0], # up and left, towards viewer
+    ),
+    Light(
+        num=GL_LIGHT2,
+        ambient=[0.3, 0.3, 0.3, 1.0],
+        diffuse=[0.4, 0.4, 0.4, 1.0],
+        position=[0.0, -100.0, 100.0, 0.0], # down and center, towards user
+    ),
+]
+
 
 rot = 0.0
 
 class TestRenderable(object):
-    def __init__(self, operation):
+    def __init__(self, operation, wireframe):
         self.faces = []
         self.normals = []
         self.vertices = []
         self.colors = []
         self.vnormals = []
         self.list = -1
-        
+        self.wireframe = wireframe
+
         a = CSG.cube()
         b = CSG.cylinder(radius=0.5, start=[0., -2., 0.], end=[0., 2., 0.])
         for p in a.polygons:
             p.shared = [1.0, 0.0, 0.0, 1.0]
         for p in b.polygons:
             p.shared = [0.0, 1.0, 0.0, 1.0]
-            
+
         recursionlimit = sys.getrecursionlimit()
         sys.setrecursionlimit(10000)
         try:
@@ -48,7 +70,7 @@ class TestRenderable(object):
         except RuntimeError as e:
             raise RuntimeError(e)
         sys.setrecursionlimit(recursionlimit)
-        
+
         for polygon in polygons:
             n = polygon.plane.normal
             indices = []
@@ -63,7 +85,7 @@ class TestRenderable(object):
             self.faces.append(indices)
             self.normals.append([n.x, n.y, n.z])
             self.colors.append(polygon.shared)
-        
+
         # setup vertex-normals
         ns = []
         for vns in self.vnormals:
@@ -73,38 +95,40 @@ class TestRenderable(object):
             n = n.dividedBy(len(vns))
             ns.append([a for a in n])
         self.vnormals = ns
-        
+
     def render(self):
+        if self.wireframe:
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
         if self.list < 0:
             self.list = glGenLists(1)
             glNewList(self.list, GL_COMPILE)
-            
-            for n, f in enumerate(self.faces):
-                glMaterialfv(GL_FRONT, GL_DIFFUSE, self.colors[n])
-                glMaterialfv(GL_FRONT, GL_SPECULAR, self.colors[n])
-                glMaterialf(GL_FRONT, GL_SHININESS, 50.0)
-                glColor4fv(self.colors[n])
-            
-                glBegin(GL_POLYGON)
-                if self.colors[n][0] > 0:
-                    glNormal3fv(self.normals[n])
 
+            for n, f in enumerate(self.faces):
+                colors = self.colors[n]
+                glMaterialfv(GL_FRONT, GL_DIFFUSE, colors)
+                glMaterialfv(GL_FRONT, GL_SPECULAR, colors)
+                glMaterialf(GL_FRONT, GL_SHININESS, 50.0)
+                glColor4fv(colors)
+
+                glBegin(GL_POLYGON)
+                glNormal3fv(self.normals[n])
                 for i in f:
-                    if self.colors[n][1] > 0:
-                        glNormal3fv(self.vnormals[i])
+                    # Disabled vertex normals to make faces clearer.
+                    # if sum(x*x for x in self.vnormals[i]) > 1e-4:
+                    #     glNormal3fv(self.vnormals[i])
                     glVertex3fv(self.vertices[i])
                 glEnd()
             glEndList()
         glCallList(self.list)
-        
+
 renderable = None
 
 def init():
-    # Enable a single OpenGL light.
-    glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient)
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse)
-    glLightfv(GL_LIGHT0, GL_POSITION, light_position)
-    glEnable(GL_LIGHT0);
+    for light in lights:
+        glLightfv(light.num, GL_AMBIENT, light.ambient)
+        glLightfv(light.num, GL_DIFFUSE, light.diffuse)
+        glLightfv(light.num, GL_POSITION, light.position)
+        glEnable(light.num);
     glEnable(GL_LIGHTING);
 
     # Use depth buffering for hidden surface elimination.
@@ -115,38 +139,39 @@ def init():
     gluPerspective(40.0, 640./480., 1.0, 10.0);
     glMatrixMode(GL_MODELVIEW);
     gluLookAt(0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.)
-    
+
 def display():
     global rot
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-    
+
     glPushMatrix()
     glTranslatef(0.0, 0.0, -1.0);
-    glRotatef(rot, 1.0, 0.0, 0.0);
-    glRotatef(rot, 0.0, 0.0, 1.0);
+    glRotatef(rot*7, 1.0, 0.0, 0.0);
+    glRotatef(rot*13, 0.0, 0.0, 1.0);
     rot += 0.1
-    
+
     renderable.render()
-    
+
     glPopMatrix()
     glFlush()
     glutSwapBuffers()
     glutPostRedisplay()
-    
+
 if __name__ == '__main__':
     parser = OptionParser()
     parser.add_option('-o', '--operation', dest='operation',
         type='str', default='subtract')
+    parser.add_option('-w', '--wireframe', action='store_true')
     (options, args) = parser.parse_args()
 
-    renderable = TestRenderable(options.operation)
-    
+    renderable = TestRenderable(options.operation, options.wireframe)
+
     glutInit()
     glutInitWindowSize(640,480)
     glutCreateWindow("CSG Test")
     glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA)
     glutDisplayFunc(display)
-     
+
     init()
 
     glutMainLoop()
