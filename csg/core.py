@@ -1,7 +1,8 @@
 import math
 import operator
-from csg.geom import *
 from functools import reduce
+from csg.geom import *
+from csg.stl import save_polys_to_stl_file
 
 class CSG(object):
     """
@@ -214,6 +215,17 @@ class CSG(object):
                 for index in cell:
                     f.write('{0} '.format(index))
                 f.write('\n')
+
+    def saveSTL(self, filename, binary=True):
+        """
+        Save polygons in STL file.
+        binary - if true (default), file is written in binary STL format.  Otherwise ASCII STL format.
+        """
+        save_polys_to_stl_file(
+            self.toPolygons(),
+            filename,
+            binary
+        )
 
     def union(self, csg):
         """
